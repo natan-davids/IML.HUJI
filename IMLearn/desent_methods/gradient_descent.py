@@ -9,7 +9,7 @@ OUTPUT_VECTOR_TYPE = ["last", "best", "average"]
 
 
 def default_callback(**kwargs) -> NoReturn:
-    pass
+    return
 
 
 class GradientDescent:
@@ -119,4 +119,34 @@ class GradientDescent:
                 Euclidean norm of w^(t)-w^(t-1)
 
         """
-        raise NotImplementedError()
+        self.memory = np.array([f.weights])
+        for t in range(1, self.max_iter_):
+            prev = f.weights
+            grad = f.compute_jacobian(X=X, y=y)
+            eta_t = self.learning_rate_.lr_step(t=t)
+            new = prev - eta_t*grad
+            f.weights = new
+            delta = np.linalg.norm(new-prev, ord=2)
+            self.__handle_memory(new)
+            self.callback_(solver=self,
+                           weights=new,
+                           val=f.compute_output(X=X, y=y),
+                           grad=grad,
+                           t=t,
+                           eta=eta_t,
+                           delta=delta)
+            if delta < self.tol_:
+                break
+        return self.__get_final_weights()
+
+
+    def __handle_memory(self, cur_weight):
+        if self.out_type_ == 'last':
+            self.memory[0] = cur_weight
+        elif self.out_type_ == 'best':
+            self.memory[0] = min(self.memory[0], cur_weight)
+        elif self.out_type_ == 'average':
+            np.append(self.memory, cur_weight)
+
+    def __get_final_weights(self):
+        return self.memory.mean(axis=0)

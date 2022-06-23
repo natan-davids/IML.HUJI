@@ -8,7 +8,12 @@ from IMLearn.desent_methods.modules import L1, L2
 from IMLearn.learners.classifiers.logistic_regression import LogisticRegression
 from IMLearn.utils import split_train_test
 
+from IMLearn.model_selection import cross_validate
+from utils import custom
+from IMLearn.metrics import mean_square_error
+
 import plotly.graph_objects as go
+import plotly.express as px
 
 
 def plot_descent_path(module: Type[BaseModule],
@@ -73,25 +78,77 @@ def get_gd_state_recorder_callback() -> Tuple[Callable[[], None], List[np.ndarra
     weights: List[np.ndarray]
         Recorded parameters
     """
-    raise NotImplementedError()
+    Values = []
+    Weights = []
+    def callback(solver, weights, val, grad, t, eta, delta, **kwargs):
+        Values.append(val)
+        Weights.append(weights)
+        return
+    return callback, Values, Weights
 
 
 def compare_fixed_learning_rates(init: np.ndarray = np.array([np.sqrt(2), np.e / 3]),
                                  etas: Tuple[float] = (1, .1, .01, .001)):
-    raise NotImplementedError()
+    module_names = {L1: "L1", L2: "L2"}
+    min_loss = float('inf')
+    for module in [L1, L2]:
+        for base_lr in etas:
+            callback, values, weights = get_gd_state_recorder_callback()
+            lr = FixedLR(base_lr)
+            f = module(init)
+            gd = GradientDescent(learning_rate=lr, callback=callback)
+            gd.fit(f, np.array([]), np.array([]))
+            descent_path = np.array(weights)
+
+            descent_plot_title = f"Fixed LR Descent Path _ module={module_names[module]} eta={base_lr}"
+            descent_plot = plot_descent_path(module, descent_path, descent_plot_title)
+            descent_plot.show()
+            descent_plot.write_image(f'ex6_plots/{descent_plot_title}.png')
+
+            convergence_plot_title = f"Fixed LR Convergence Rate _ module={module_names[module]} eta={base_lr}"
+            convergence_plot = px.line(y=np.array(values), title=convergence_plot_title)
+            convergence_plot.show()
+            convergence_plot.write_image(f'ex6_plots/{convergence_plot_title}.png')
+
+            lowest_loss = min(values)
+            min_loss = min(min_loss, lowest_loss)
+
+            print(f"lowest achieved loss for module {module_names[module]} with eta={base_lr}:\n{lowest_loss}")
+
+    print(f'\nMinimum loss for all modules: {min_loss}ֿ\n')
+
 
 
 def compare_exponential_decay_rates(init: np.ndarray = np.array([np.sqrt(2), np.e / 3]),
                                     eta: float = .1,
                                     gammas: Tuple[float] = (.9, .95, .99, 1)):
     # Optimize the L1 objective using different decay-rate values of the exponentially decaying learning rate
-    raise NotImplementedError()
+    convergence_df = pd.DataFrame()
+    for g in gammas:
+        callback, values, weights = get_gd_state_recorder_callback()
+        f = L1(init)
+        lr = ExponentialLR(eta, g)
+        gd = GradientDescent(learning_rate=lr, callback=callback)
+        gd.fit(f, np.array([]), np.array([]))
+
+        descent_path = np.array(weights)
+        descent_plot_title = f"Exponential LR Descent Path for L1 _ gamma={g} base_lr={eta}"
+        descent_plot = plot_descent_path(L1, descent_path, descent_plot_title)
+        descent_plot.show()
+        descent_plot.write_image(f'ex6_plots/{descent_plot_title}.png')
+
+        title = f"gamma={g}"
+        convergence_df[title] = pd.Series(values)
+        print(f"lowest achieved loss with gamma={g}:\n{min(values)}")
 
     # Plot algorithm's convergence for the different values of gamma
-    raise NotImplementedError()
+    convergence_plot_title = f"Exponential LR Convergence Rate _ base_lr={eta} gammas={gammas}"
+    convergence_plot = px.line(convergence_df, title=convergence_plot_title)
+    convergence_plot.show()
+    convergence_plot.write_image(f'ex6_plots/{convergence_plot_title}.png')
 
     # Plot descent path for gamma=0.95
-    raise NotImplementedError()
+
 
 
 def load_data(path: str = "../datasets/SAheart.data", train_portion: float = .8) -> \
@@ -128,18 +185,87 @@ def load_data(path: str = "../datasets/SAheart.data", train_portion: float = .8)
 
 def fit_logistic_regression():
     # Load and split SA Heard Disease dataset
-    X_train, y_train, X_test, y_test = load_data()
+    train_X, train_y, test_X, test_y = load_data()
 
     # Plotting convergence rate of logistic regression over SA heart disease data
-    raise NotImplementedError()
+    callback, values, weights = get_gd_state_recorder_callback()
+    solver = GradientDescent(learning_rate=FixedLR(1e-4), max_iter=2000, callback=callback)
+    model = LogisticRegression(solver=solver)
+    model.fit(train_X.to_numpy(), train_y.to_numpy())
+    y_prob = model.predict_proba(test_X.to_numpy())
+
+    from sklearn.metrics import roc_curve, auc
+    fpr, tpr, thresholds = roc_curve(test_y, y_prob)
+    c = [custom[0], custom[-1]]
+
+    roc_plot = go.Figure(
+        data=[go.Scatter(x=[0, 1], y=[0, 1], mode="lines", line=dict(color="black", dash='dash'),
+                         name="Random Class Assignment"),
+              go.Scatter(x=fpr, y=tpr, mode='markers+lines', text=thresholds, name="", showlegend=False, marker_size=5,
+                         marker_color=c[1][1],
+                         hovertemplate="<b>Threshold:</b>%{text:.3f}<br>FPR: %{x:.3f}<br>TPR: %{y:.3f}")],
+        layout=go.Layout(title=rf"$\text{{ROC Curve Of Fitted Model - AUC}}={auc(fpr, tpr):.6f}$",
+                         xaxis=dict(title=r"$\text{False Positive Rate (FPR)}$"),
+                         yaxis=dict(title=r"$\text{True Positive Rate (TPR)}$")))
+    roc_plot.show()
+    roc_plot.write_image(f"ex6_plots/roc_curve_logistic.png")
+
+    a_star = thresholds[np.argmax(tpr-fpr)]
+    model.alpha_ = a_star
+
+    print('\n\n')
+    print('threshholds')
+    print(thresholds)
+    print('\ntpr-fpr')
+    print(tpr-fpr)
+    print('\nalpha star')
+    print(a_star)
+    print('\n\n')
+
+    print(f"optimal roc with alpha={a_star}")
+    print(f"test error: {model.loss(test_X.to_numpy(), test_y.to_numpy())}")
 
     # Fitting l1- and l2-regularized logistic regression models, using cross-validation to specify values
     # of regularization parameter
-    raise NotImplementedError()
+    vals = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1]
+
+    l1_training_loss = np.empty(len(vals))
+    l1_validation_loss = np.empty(len(vals))
+
+    l2_training_loss = np.empty(len(vals))
+    l2_validation_loss = np.empty(len(vals))
+
+    for i, lambda_val in enumerate(vals):
+        l1_model = LogisticRegression(lam=lambda_val,
+                                      penalty='l1',
+                                      solver=GradientDescent(learning_rate=FixedLR(1e-4), max_iter=2000))
+        l1_mean_loss, _ = cross_validate(l1_model, train_X.to_numpy(), train_y.to_numpy(), mean_square_error)
+        l1_training_loss[i] = l1_mean_loss
+        l1_validation_loss[i] = l1_model.loss(test_X.to_numpy(), test_y.to_numpy())
+
+        l2_model = LogisticRegression(lam=lambda_val,
+                                      penalty='l2',
+                                      solver=GradientDescent(learning_rate=FixedLR(1e-4), max_iter=2000))
+        l2_mean_loss, _ = cross_validate(l2_model, train_X.to_numpy(), train_y.to_numpy(), mean_square_error)
+        l2_training_loss[i] = l2_mean_loss
+        l2_validation_loss[i] = l2_model.loss(test_X.to_numpy(), test_y.to_numpy())
+
+    l1_optimal = vals[np.argmin(l1_validation_loss)]
+    l2_optimal = vals[np.argmin(l2_validation_loss)]
+
+    params = [(l1_optimal, 'l1'), (l2_optimal, 'l2')]
+    optimal_models = [LogisticRegression(lam=opt_lam,
+                                      penalty=penalty,
+                                      solver=GradientDescent(learning_rate=FixedLR(1e-4), max_iter=2000))
+                      for opt_lam, penalty in params]
+    for i, mod in enumerate(optimal_models):
+        mod.fit(train_X.to_numpy(), train_y.to_numpy())
+        print(f"fitting data with optimal {params[i][1]} regularization, lambda={params[i][0]}")
+        print(f"model loss: {mod.loss(test_X.to_numpy(), test_y.to_numpy())}")
 
 
 if __name__ == '__main__':
     np.random.seed(0)
-    compare_fixed_learning_rates()
-    compare_exponential_decay_rates()
+    # compare_fixed_learning_rates()
+    # compare_exponential_decay_rates()
     fit_logistic_regression()
