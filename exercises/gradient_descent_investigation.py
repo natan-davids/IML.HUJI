@@ -213,15 +213,6 @@ def fit_logistic_regression():
     a_star = thresholds[np.argmax(tpr-fpr)]
     model.alpha_ = a_star
 
-    print('\n\n')
-    print('threshholds')
-    print(thresholds)
-    print('\ntpr-fpr')
-    print(tpr-fpr)
-    print('\nalpha star')
-    print(a_star)
-    print('\n\n')
-
     print(f"optimal roc with alpha={a_star}")
     print(f"test error: {model.loss(test_X.to_numpy(), test_y.to_numpy())}")
 
@@ -266,6 +257,6 @@ def fit_logistic_regression():
 
 if __name__ == '__main__':
     np.random.seed(0)
-    # compare_fixed_learning_rates()
-    # compare_exponential_decay_rates()
+    compare_fixed_learning_rates()
+    compare_exponential_decay_rates()
     fit_logistic_regression()
